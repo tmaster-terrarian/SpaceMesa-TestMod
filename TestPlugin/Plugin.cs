@@ -2,6 +2,7 @@
 using BepInEx.Logging;
 using BepInEx.Unity.Mono;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 namespace TestPlugin;
 
@@ -16,10 +17,25 @@ public class Plugin : BaseUnityPlugin
 
     private void OnEnable()
     {
-        Logger.Log(LogLevel.Info, "Hello World!");
-
         On.PlayerController.Start += OnPlayerController_Start;
         On.PlayerController.Jump += OnPlayerController_Jump;
+
+        SceneManager.activeSceneChanged += Init;
+
+        Logger.Log(LogLevel.Info, "Initialized Hooks");
+    }
+
+    private void OnDisable()
+    {
+        On.PlayerController.Start -= OnPlayerController_Start;
+        On.PlayerController.Jump -= OnPlayerController_Jump;
+
+        SceneManager.activeSceneChanged -= Init;
+    }
+
+    private void Init(Scene oldScene, Scene newScene)
+    {
+        cubes.Clear();
     }
 
     private void OnPlayerController_Start(On.PlayerController.orig_Start orig, PlayerController self)

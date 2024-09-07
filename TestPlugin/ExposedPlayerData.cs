@@ -5,8 +5,6 @@ namespace TestPlugin;
 
 public class ExposedPlayerData : MonoBehaviour
 {
-    private static readonly FieldInfo isJumpingField = typeof(PlayerController).GetField("isJumping", BindingFlags.Instance | BindingFlags.NonPublic);
-
     private bool _isGrounded;
 
     public bool IsGrounded => _isGrounded;
@@ -16,7 +14,7 @@ public class ExposedPlayerData : MonoBehaviour
             var playerController = gameObject.GetComponent<PlayerController>();
             if(playerController is null) return false;
 
-            return (bool)isJumpingField.GetValue(playerController);
+            return (bool)PlayerHooks.isJumpingField.GetValue(playerController);
         }
     }
 
@@ -38,6 +36,14 @@ public class ExposedPlayerData : MonoBehaviour
         if(component is null)
             return orig(self);
 
-        return component._isGrounded = orig(self);
+        bool wasGrounded = component._isGrounded;
+        component._isGrounded = orig(self);
+
+        if(component._isGrounded && !wasGrounded)
+        {
+            PlayerHooks.InvokeLanded(self);
+        }
+
+        return component._isGrounded;
     }
 }
