@@ -1,0 +1,6 @@
+[*.cs]
+
+# BepInEx002: Classes with BepInPlugin attribute must inherit from BaseUnityPlugin
+dotnet_diagnostic.BepInEx002.severity = silent
+
+dotnet_diagnostic.CS1705.severity = none
