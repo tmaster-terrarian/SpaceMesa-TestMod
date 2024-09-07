@@ -1,4 +1,5 @@
-﻿using BepInEx;
+﻿using System.Reflection;
+using BepInEx;
 using BepInEx.Logging;
 using BepInEx.Unity.Mono;
 using UnityEngine;
@@ -19,8 +20,11 @@ public class Plugin : BaseUnityPlugin
     {
         On.PlayerController.Start += OnPlayerController_Start;
         On.PlayerController.Jump += OnPlayerController_Jump;
+        On.PlayerController.FixedUpdate += OnPlayerController_FixedUpdate;
+        On.PlayerController.Update += OnPlayerController_Update;
+        On.PlayerController.StopWallJumping += OnPlayerController_StopWallJumping;
 
-        SceneManager.activeSceneChanged += Init;
+        SceneManager.activeSceneChanged += OnSceneChange;
 
         Logger.Log(LogLevel.Info, "Initialized Hooks");
     }
@@ -29,13 +33,17 @@ public class Plugin : BaseUnityPlugin
     {
         On.PlayerController.Start -= OnPlayerController_Start;
         On.PlayerController.Jump -= OnPlayerController_Jump;
+        On.PlayerController.FixedUpdate -= OnPlayerController_FixedUpdate;
+        On.PlayerController.Update -= OnPlayerController_Update;
+        On.PlayerController.StopWallJumping -= OnPlayerController_StopWallJumping;
 
-        SceneManager.activeSceneChanged -= Init;
+        SceneManager.activeSceneChanged -= OnSceneChange;
     }
 
-    private void Init(Scene oldScene, Scene newScene)
+    private void OnSceneChange(Scene oldScene, Scene newScene)
     {
         cubes.Clear();
+        Physics2D.gravity = new(0, -9.8f);
     }
 
     private void OnPlayerController_Start(On.PlayerController.orig_Start orig, PlayerController self)
@@ -44,7 +52,7 @@ public class Plugin : BaseUnityPlugin
         Logger.Log(LogLevel.Info, "Player Started!");
 
         var playerObj = self.gameObject;
-        playerObj.AddComponent<ExposedPlayerData>();
+        playerObj.AddComponent<ExtraPlayerData>();
 
         var cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
         cube.transform.localScale = Vector3.one * 0.5f;
@@ -52,14 +60,97 @@ public class Plugin : BaseUnityPlugin
         cube.transform.SetParent(playerObj.transform, true);
 
         cubes.Add(cube);
-
-        Physics2D.gravity = new(0, -9.8f);
     }
 
     private void OnPlayerController_Jump(On.PlayerController.orig_Jump orig, PlayerController self)
     {
         orig(self);
-        self.rb.velocity = new(self.rb.velocity.x, 40);
+        self.rb.velocity = new(self.rb.velocity.x, 28);
+
+        var data = self.GetComponent<ExtraPlayerData>();
+        data.velocityOverride = Vector2.zero;
+    }
+
+    private static readonly FieldInfo player_isWallJumpingField =
+        typeof(PlayerController).GetField("isWallJumping", BindingFlags.Instance | BindingFlags.NonPublic);
+
+    private void OnPlayerController_StopWallJumping(On.PlayerController.orig_StopWallJumping orig, PlayerController self)
+    {
+        // if((bool)player_isWallJumpingField.GetValue(self) == true)
+        // {
+        //     self.GetComponent<ExtraPlayerData>().velocityOverride = Vector2.zero;
+        // }
+        orig(self);
+    }
+
+    private void OnPlayerController_Update(On.PlayerController.orig_Update orig, PlayerController self)
+    {
+        var data = self.GetComponent<ExtraPlayerData>();
+
+        var wasSliding = self.isWallSliding;
+
+        if((bool)player_isWallJumpingField.GetValue(self) == false && self.isWallSliding && UserInput.instance.JumpJustPressed)
+        {
+            data.velocityOverride = Vector2.zero;
+        }
+
+        orig(self);
+
+        if(wasSliding != self.isWallSliding && data.velocityOverride != Vector2.zero)
+        {
+            data.velocityOverride = Vector2.zero;
+        }
+
+        if((bool)player_isWallJumpingField.GetValue(self) == true && UserInput.instance.JumpJustPressed)
+        {
+            self.rb.velocity *= Vector2.right * 2.4f + Vector2.up * 0.35f;
+        }
+    }
+
+    private void OnPlayerController_FixedUpdate(On.PlayerController.orig_FixedUpdate orig, PlayerController self)
+    {
+        orig(self);
+
+        self.rb.gravityScale = 0;
+
+        float maxSpeed = 18;
+
+        if(self.isGroundSliding)
+            maxSpeed = 30;
+
+        if(!self.isDashing)
+            self.rb.velocity = new(Mathf.Clamp(self.rb.velocity.x, -maxSpeed, maxSpeed), self.rb.velocity.y);
+
+        var data = self.GetComponent<ExtraPlayerData>();
+
+        if(self.isDashing)
+        {
+            data.velocityOverride = Vector2.zero;
+        }
+        else if(self.isWallSliding)
+        {
+            data.velocityOverride += Vector2.down * (6f * Time.fixedDeltaTime);
+            data.velocityOverride = Vector2.ClampMagnitude(data.velocityOverride, 10f);
+
+            self.rb.velocity += data.velocityOverride;
+        }
+        else if(!data.IsGrounded)
+        {
+            data.velocityOverride += Vector2.down * (5f * Time.fixedDeltaTime);
+            data.velocityOverride = Vector2.ClampMagnitude(data.velocityOverride, 20f);
+
+            self.rb.velocity += data.velocityOverride;
+        }
+
+        var oldPos = self.transform.position;
+        self.transform.position += (Vector3)self.rb.velocity;
+
+        if(data.IsGrounded && !data.IsJumping)
+        {
+            data.velocityOverride = Vector2.zero;
+        }
+
+        self.transform.position = oldPos;
     }
 
     private void Update()
